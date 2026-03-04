@@ -1,0 +1,77 @@
+{
+  "projectType": "saas",
+  "projectName": "Rear JackMan",
+  "projectDescription": "A web app to help busy F1 fans track race results, championship standings, and key moments from the season.",
+  "theme": "palm",
+  "primaryColor": "#E10600",
+  "lightColor": "#FF6B6B",
+  "darkColor": "#B00500",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "features"
+            ]
+          },
+          {
+            "group": "Using Rear JackMan",
+            "pages": [
+              "using/viewing-races",
+              "using/championship-standings",
+              "using/driver-profiles",
+              "using/constructor-profiles"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "dev/setup",
+              "dev/architecture"
+            ]
+          },
+          {
+            "group": "Core Systems",
+            "pages": [
+              "dev/database-schema",
+              "dev/data-sync",
+              "dev/rendering"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "dev/cloudflare-workers",
+              "dev/environment-variables"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Race schedule and results tracking",
+    "Championship standings before/after each race",
+    "Driver and constructor profile pages",
+    "Automated data sync from Jolpica F1 API",
+    "Timezone-aware race display",
+    "Historical season comparison"
+  ],
+  "publicApiSurface": [
+    "GET / - Home page with season list",
+    "GET /{season} - Season race list",
+    "GET /{season}/{round} - Race detail page",
+    "GET /driver/{driverId} - Driver profile",
+    "GET /constructor/{constructorId} - Constructor profile",
+    "POST /api/sync/{season} - Trigger data sync"
+  ]
+}
