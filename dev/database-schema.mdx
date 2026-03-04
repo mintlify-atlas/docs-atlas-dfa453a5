@@ -1,0 +1,276 @@
+---
+title: Database schema
+description: D1 database tables, columns, and relationships
+---
+
+The application uses Cloudflare D1 (SQLite) for data persistence. The schema is defined through migrations in `migrations/*.sql`.
+
+## Tables
+
+### races
+
+Stores F1 race schedule and circuit information for each season.
+
+```sql
+CREATE TABLE IF NOT EXISTS races (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  season INTEGER NOT NULL,
+  round INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  circuit_name TEXT NOT NULL,
+  circuit_id TEXT NOT NULL,
+  locality TEXT,
+  country TEXT,
+  date TEXT NOT NULL,
+  time TEXT,
+  wikipedia_url TEXT,
+  UNIQUE(season, round)
+);
+```
+
+<ParamField path="id" type="INTEGER">
+  Auto-incrementing primary key
+</ParamField>
+
+<ParamField path="season" type="INTEGER" required>
+  Year of the season (e.g., 2024)
+</ParamField>
+
+<ParamField path="round" type="INTEGER" required>
+  Round number within the season (1-24)
+</ParamField>
+
+<ParamField path="name" type="TEXT" required>
+  Official race name (e.g., "Australian Grand Prix")
+</ParamField>
+
+<ParamField path="circuit_name" type="TEXT" required>
+  Full circuit name (e.g., "Albert Park Circuit")
+</ParamField>
+
+<ParamField path="circuit_id" type="TEXT" required>
+  Jolpica API circuit identifier (e.g., "albert_park")
+</ParamField>
+
+<ParamField path="locality" type="TEXT">
+  City or locality (e.g., "Melbourne")
+</ParamField>
+
+<ParamField path="country" type="TEXT">
+  Country name (e.g., "Australia")
+</ParamField>
+
+<ParamField path="date" type="TEXT" required>
+  Race date in ISO format (YYYY-MM-DD)
+</ParamField>
+
+<ParamField path="time" type="TEXT">
+  Race start time in UTC (HH:MM:SSZ), or NULL if unknown
+</ParamField>
+
+<ParamField path="wikipedia_url" type="TEXT">
+  Wikipedia article URL for the race
+</ParamField>
+
+**Constraints:**
+- `UNIQUE(season, round)` — only one race per round per season
+- Index: `idx_races_season_round` on `(season, round)`
+
+### race_entries
+
+Stores driver results for each race, including grid position, finish position, and points.
+
+```sql
+CREATE TABLE IF NOT EXISTS race_entries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  race_id INTEGER NOT NULL REFERENCES races(id),
+  jolpica_driver_id TEXT NOT NULL,
+  driver_code TEXT NOT NULL,
+  driver_name TEXT NOT NULL,
+  constructor TEXT NOT NULL,
+  grid_position INTEGER,
+  finish_position INTEGER,
+  status TEXT NOT NULL,
+  points REAL NOT NULL DEFAULT 0,
+  fastest_lap INTEGER NOT NULL DEFAULT 0
+);
+```
+
+<ParamField path="id" type="INTEGER">
+  Auto-incrementing primary key
+</ParamField>
+
+<ParamField path="race_id" type="INTEGER" required>
+  Foreign key to `races.id`
+</ParamField>
+
+<ParamField path="jolpica_driver_id" type="TEXT" required>
+  Jolpica API driver identifier (e.g., "max_verstappen")
+</ParamField>
+
+<ParamField path="driver_code" type="TEXT" required>
+  Three-letter driver code (e.g., "VER", "HAM")
+</ParamField>
+
+<ParamField path="driver_name" type="TEXT" required>
+  Full driver name: "givenName familyName" (e.g., "Max Verstappen")
+</ParamField>
+
+<ParamField path="constructor" type="TEXT" required>
+  Team/constructor name (e.g., "Red Bull")
+</ParamField>
+
+<ParamField path="grid_position" type="INTEGER">
+  Starting grid position (1-20), or NULL if pit lane start
+</ParamField>
+
+<ParamField path="finish_position" type="INTEGER">
+  Final classification position, or NULL if DNF/DSQ/DNS
+</ParamField>
+
+<ParamField path="status" type="TEXT" required>
+  Finish status (e.g., "Finished", "+1 Lap", "Collision", "Engine")
+</ParamField>
+
+<ParamField path="points" type="REAL" required>
+  Championship points earned (0.0-26.0 with fastest lap)
+</ParamField>
+
+<ParamField path="fastest_lap" type="INTEGER" required>
+  1 if driver set fastest lap, 0 otherwise
+</ParamField>
+
+**Constraints:**
+- Foreign key: `race_id REFERENCES races(id)`
+- Index: `idx_race_entries_race_id` on `race_id`
+
+### standings_snapshots
+
+Stores championship standings snapshots before and after each race for both drivers and constructors.
+
+```sql
+CREATE TABLE IF NOT EXISTS standings_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  race_id INTEGER NOT NULL REFERENCES races(id),
+  snapshot_type TEXT NOT NULL CHECK(snapshot_type IN ('before', 'after')),
+  entity_type TEXT NOT NULL CHECK(entity_type IN ('driver', 'constructor')),
+  position INTEGER NOT NULL,
+  entity_id TEXT NOT NULL,
+  entity_name TEXT NOT NULL,
+  points REAL NOT NULL,
+  wins INTEGER NOT NULL DEFAULT 0
+);
+```
+
+<ParamField path="id" type="INTEGER">
+  Auto-incrementing primary key
+</ParamField>
+
+<ParamField path="race_id" type="INTEGER" required>
+  Foreign key to `races.id`
+</ParamField>
+
+<ParamField path="snapshot_type" type="TEXT" required>
+  When the snapshot was taken: `'before'` or `'after'`
+</ParamField>
+
+<ParamField path="entity_type" type="TEXT" required>
+  Type of entity: `'driver'` or `'constructor'`
+</ParamField>
+
+<ParamField path="position" type="INTEGER" required>
+  Championship position (1-20 for drivers, 1-10 for constructors)
+</ParamField>
+
+<ParamField path="entity_id" type="TEXT" required>
+  Jolpica identifier (driver_id or constructor_id)
+</ParamField>
+
+<ParamField path="entity_name" type="TEXT" required>
+  Display name for the driver or constructor
+</ParamField>
+
+<ParamField path="points" type="REAL" required>
+  Total championship points at this snapshot
+</ParamField>
+
+<ParamField path="wins" type="INTEGER" required>
+  Total race wins at this snapshot
+</ParamField>
+
+**Constraints:**
+- Foreign key: `race_id REFERENCES races(id)`
+- Check: `snapshot_type IN ('before', 'after')`
+- Check: `entity_type IN ('driver', 'constructor')`
+- Index: `idx_standings_snapshots_race_id` on `race_id`
+
+## TypeScript interfaces
+
+The database row types are defined in `src/types.ts`:
+
+```typescript
+export interface Race {
+  id: number;
+  season: number;
+  round: number;
+  name: string;
+  circuit_name: string;
+  circuit_id: string;
+  locality: string | null;
+  country: string | null;
+  date: string;       // "YYYY-MM-DD"
+  time: string | null; // "HH:MM:SSZ" UTC, or null
+  wikipedia_url: string | null;
+}
+
+export interface RaceEntry {
+  id: number;
+  race_id: number;
+  jolpica_driver_id: string;
+  driver_code: string;
+  driver_name: string;
+  constructor: string;
+  grid_position: number | null;
+  finish_position: number | null;
+  status: string;
+  points: number;
+  fastest_lap: number; // 0 | 1
+}
+
+export interface StandingsSnapshot {
+  id: number;
+  race_id: number;
+  snapshot_type: 'before' | 'after';
+  entity_type: 'driver' | 'constructor';
+  position: number;
+  entity_id: string;
+  entity_name: string;
+  points: number;
+  wins: number;
+}
+```
+
+## Migrations
+
+The schema is versioned through numbered migration files:
+
+- **`0000_baseline.sql`** — Creates initial tables and indexes
+- **`0001_rename_columns.sql`** — Renames `races.url` → `wikipedia_url` and `race_entries.driver_id` → `jolpica_driver_id`
+
+```sql
+ALTER TABLE races RENAME COLUMN url TO wikipedia_url;
+ALTER TABLE race_entries RENAME COLUMN driver_id TO jolpica_driver_id;
+```
+
+Migrations are applied using `wrangler d1 migrations apply` during deployment.
+
+## Relationships
+
+```
+races (1) ──< (N) race_entries
+  └───< (N) standings_snapshots
+```
+
+- Each `race` can have multiple `race_entries` (one per driver)
+- Each `race` can have multiple `standings_snapshots` (before/after × driver/constructor)
+- All relationships use `race_id` as the foreign key

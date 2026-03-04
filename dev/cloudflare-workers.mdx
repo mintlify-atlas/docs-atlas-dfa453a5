@@ -1,0 +1,226 @@
+---
+title: Deploying to Cloudflare Workers
+description: Deploy rearjackman to Cloudflare Workers with D1, queues, and cron triggers
+---
+
+## Overview
+
+rearjackman is deployed as a Cloudflare Worker with D1 database, queue bindings, and scheduled cron triggers for automatic data synchronization.
+
+## Prerequisites
+
+- [Node.js](https://nodejs.org/) installed
+- [Cloudflare account](https://dash.cloudflare.com/sign-up)
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installed
+
+```bash
+npm install -g wrangler
+wrangler login
+```
+
+## Configuration
+
+The application is configured via `wrangler.toml`:
+
+```toml
+name = "rearjackman"
+main = "src/worker.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+routes = [
+  { pattern = "rearjackman.com", custom_domain = true }
+]
+
+[triggers]
+crons = ["0 6 * * MON"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rearjackman"
+database_id = "c90c6cfb-13b0-42fd-9a52-8210a211ad22"
+migrations_dir = "migrations"
+
+[[queues.producers]]
+queue = "rearjackman-sync"
+binding = "SYNC_QUEUE"
+
+[[queues.consumers]]
+queue = "rearjackman-sync"
+max_batch_size = 1
+max_batch_timeout = 5
+```
+
+### Key configuration settings
+
+- **compatibility_flags**: `nodejs_compat` enables Node.js APIs
+- **routes**: Custom domain configuration
+- **crons**: Scheduled trigger runs every Monday at 6:00 AM UTC
+- **migrations_dir**: Location of D1 database migration files
+
+## D1 database setup
+
+Create the D1 database:
+
+```bash
+wrangler d1 create rearjackman
+```
+
+This will output a database ID. Update `wrangler.toml` with the database ID:
+
+```toml
+[[d1_databases]]
+binding = "DB"
+database_name = "rearjackman"
+database_id = "your-database-id-here"
+migrations_dir = "migrations"
+```
+
+### Running migrations
+
+Apply database migrations:
+
+```bash
+# Local development
+wrangler d1 migrations apply rearjackman --local
+
+# Production
+wrangler d1 migrations apply rearjackman
+```
+
+<Note>
+The `DB` binding is used throughout the codebase to access the D1 database. See `src/worker.ts` for query examples.
+</Note>
+
+## Queue setup
+
+Create the sync queue:
+
+```bash
+wrangler queues create rearjackman-sync
+```
+
+The queue configuration in `wrangler.toml` includes:
+
+- **Producer binding**: `SYNC_QUEUE` - used to send messages to the queue
+- **Consumer settings**:
+  - `max_batch_size: 1` - processes one sync job at a time
+  - `max_batch_timeout: 5` - waits up to 5 seconds before processing
+
+### Queue message format
+
+The sync queue accepts messages with this structure:
+
+```typescript
+{
+  season: number;
+  fromRound?: number;  // defaults to 1
+  toRound?: number;    // defaults to all rounds
+}
+```
+
+<Note>
+The queue handler is defined in `src/worker.ts:104`. It processes race data synchronization jobs asynchronously.
+</Note>
+
+## Cron triggers
+
+The scheduled handler runs every Monday at 6:00 AM UTC (`0 6 * * MON`):
+
+- Checks the current season's race schedule
+- Identifies completed races since the last sync
+- Queues a sync job for the most recent completed race
+
+<Warning>
+The cron trigger only queues sync jobs for races that have already completed. It checks race dates against the current date to avoid syncing future races.
+</Warning>
+
+See the implementation in `src/worker.ts:70-102`.
+
+## Environment variables and secrets
+
+Set required secrets before deployment. See [Environment variables](/dev/environment-variables) for details.
+
+```bash
+wrangler secret put SYNC_SECRET
+```
+
+## Deployment
+
+### Local development
+
+Run the worker locally with bindings:
+
+```bash
+npm run dev
+```
+
+This starts a local development server with:
+- Local D1 database
+- Local queue emulation
+- Hot reload on file changes
+
+### Production deployment
+
+Deploy to Cloudflare Workers:
+
+```bash
+npm run deploy
+```
+
+This runs `wrangler deploy` which:
+1. Builds the TypeScript worker code
+2. Uploads the worker to Cloudflare
+3. Activates bindings (DB, SYNC_QUEUE)
+4. Configures routes and triggers
+
+<Warning>
+Ensure all secrets are set and D1 migrations are applied before deploying to production.
+</Warning>
+
+## Observability
+
+The worker has observability enabled in `wrangler.toml`:
+
+```toml
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true
+```
+
+View logs in the Cloudflare dashboard or via Wrangler:
+
+```bash
+wrangler tail
+```
+
+## Custom domain
+
+The worker is configured to use a custom domain via the `routes` configuration:
+
+```toml
+routes = [
+  { pattern = "rearjackman.com", custom_domain = true }
+]
+```
+
+Ensure the domain is added to your Cloudflare account and DNS is properly configured.
+
+## Bindings reference
+
+The worker uses these bindings (defined in `src/types.ts:3-7`):
+
+| Binding | Type | Purpose |
+|---------|------|----------|
+| `DB` | D1Database | Access to D1 database for race data |
+| `SYNC_SECRET` | string | Secret for authenticating manual sync requests |
+| `SYNC_QUEUE` | Queue | Queue for asynchronous data sync jobs |
+
+## Next steps
+
+- [Configure environment variables](/dev/environment-variables)
+- Review [wrangler.toml documentation](https://developers.cloudflare.com/workers/wrangler/configuration/)
+- Learn about [D1 databases](https://developers.cloudflare.com/d1/)
+- Explore [Cloudflare Queues](https://developers.cloudflare.com/queues/)

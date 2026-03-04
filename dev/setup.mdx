@@ -1,0 +1,194 @@
+---
+title: Development setup
+description: Set up your local development environment for Rear JackMan
+---
+
+This guide walks you through setting up a local development environment for Rear JackMan.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- **Node.js** (v18 or later recommended)
+- **npm** or **pnpm** or **yarn**
+- **Wrangler CLI** (CloudFlare Workers CLI)
+- A CloudFlare account with Workers and D1 access
+
+<Note>
+Rear JackMan is built on CloudFlare Workers and D1. You'll need a CloudFlare account to deploy and test the application.
+</Note>
+
+## Installation steps
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the Rear JackMan repository to your local machine:
+    
+    ```bash
+    git clone https://github.com/shalvah/rearjackman.git
+    cd rearjackman
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Install the project dependencies using npm:
+    
+    ```bash
+    npm install
+    ```
+    
+    This will install:
+    - `@cloudflare/workers-types` - TypeScript types for CloudFlare Workers
+    - `typescript` - TypeScript compiler
+    - `wrangler` - CloudFlare Workers CLI
+  </Step>
+
+  <Step title="Configure Wrangler">
+    Authenticate with CloudFlare:
+    
+    ```bash
+    npx wrangler login
+    ```
+    
+    This will open a browser window to authorize Wrangler with your CloudFlare account.
+  </Step>
+
+  <Step title="Create a D1 database">
+    Create a new D1 database for local development:
+    
+    ```bash
+    npx wrangler d1 create rearjackman-dev
+    ```
+    
+    Update `wrangler.toml` with your database ID from the output.
+  </Step>
+
+  <Step title="Run database migrations">
+    Apply the database schema migrations:
+    
+    ```bash
+    npx wrangler d1 migrations apply rearjackman-dev --local
+    ```
+    
+    This creates the tables defined in the `migrations/` directory:
+    - `races` - Race schedule and details
+    - `race_entries` - Race results and driver performance
+    - `standings_snapshots` - Championship standings before/after races
+  </Step>
+
+  <Step title="Configure environment variables">
+    Create a `.dev.vars` file in the project root with your local development secrets:
+    
+    ```bash
+    SYNC_SECRET=dev-secret
+    ```
+    
+    <Warning>
+    Never commit `.dev.vars` to version control. It's already included in `.gitignore`.
+    </Warning>
+  </Step>
+
+  <Step title="Start the development server">
+    Run the local development server:
+    
+    ```bash
+    npm run dev
+    ```
+    
+    This starts Wrangler in development mode with hot reloading. The app will be available at `http://localhost:8787`.
+  </Step>
+</Steps>
+
+## Available scripts
+
+Rear JackMan includes the following npm scripts from `package.json`:
+
+<ParamField path="dev" type="command">
+  ```bash
+  npm run dev
+  ```
+  
+  Starts the Wrangler development server with hot reloading at `http://localhost:8787`.
+</ParamField>
+
+<ParamField path="build" type="command">
+  ```bash
+  npm run build
+  ```
+  
+  Type-checks the TypeScript code without emitting files. Useful for verifying types before deployment.
+</ParamField>
+
+<ParamField path="deploy" type="command">
+  ```bash
+  npm run deploy
+  ```
+  
+  Deploys the application to CloudFlare Workers production environment.
+</ParamField>
+
+<ParamField path="sync:local" type="command">
+  ```bash
+  npm run sync:local
+  ```
+  
+  Triggers a manual data sync for the 2026 season on your local development server. Requires the `SYNC_SECRET` header.
+  
+  Example:
+  ```bash
+  curl "http://localhost:8787/api/sync/2026" -H "X-Sync-Secret: dev-secret"
+  ```
+</ParamField>
+
+## Verifying your setup
+
+After completing the setup, verify everything is working:
+
+1. **Check the home page**: Visit `http://localhost:8787` to see the season list
+2. **Run a manual sync**: Use `npm run sync:local` to fetch race data
+3. **Browse a season**: Visit `http://localhost:8787/2026` to see races
+4. **Check type safety**: Run `npm run build` to verify TypeScript compilation
+
+<Tip>
+The first time you run the app, the database will be empty. Use the manual sync endpoint to populate it with race data from the Jolpica F1 API.
+</Tip>
+
+## Project structure
+
+Here's an overview of the key files and directories:
+
+```
+rearjackman/
+├── src/
+│   ├── worker.ts          # Main worker entry point
+│   ├── sync.ts            # Data synchronization logic
+│   ├── types.ts           # TypeScript type definitions
+│   ├── assets.ts          # Static assets (favicon)
+│   └── ui/                # UI rendering
+│       ├── render.ts      # Page render exports
+│       ├── layout.ts      # HTML layout and utilities
+│       ├── styles.ts      # CSS styles
+│       ├── client.ts      # Client-side scripts
+│       └── pages/         # Individual page renderers
+├── migrations/            # D1 database migrations
+├── wrangler.toml         # CloudFlare Workers configuration
+├── package.json          # Dependencies and scripts
+└── tsconfig.json         # TypeScript configuration
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/dev/architecture">
+    Learn about the system architecture and data flows
+  </Card>
+  <Card title="Database schema" icon="database" href="/dev/database-schema">
+    Explore the D1 database tables and relationships
+  </Card>
+  <Card title="Data sync" icon="arrows-rotate" href="/dev/data-sync">
+    Understand how data is fetched and synchronized
+  </Card>
+  <Card title="CloudFlare Workers" icon="cloud" href="/dev/cloudflare-workers">
+    Deploy your application to production
+  </Card>
+</CardGroup>

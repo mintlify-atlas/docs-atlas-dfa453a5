@@ -1,0 +1,117 @@
+---
+title: Introduction
+description: Track F1 race results, championship standings, and historical performance for drivers and constructors
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Rear JackMan hero"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Rear JackMan hero"
+/>
+
+## Welcome to Rear JackMan
+
+Rear JackMan is a web app designed for busy F1 fans who want to stay up-to-date with the season without missing key moments. Track race results, follow championship standings before and after each race, and explore detailed driver and constructor profiles — all with automated data sync from the Jolpica F1 API.
+
+<CardGroup cols={2}>
+  <Card
+    title="View races"
+    icon="flag-checkered"
+    href="/using/viewing-races"
+  >
+    Browse races by season, see grid positions, race results, and fastest laps
+  </Card>
+  <Card
+    title="Championship standings"
+    icon="trophy"
+    href="/using/championship-standings"
+  >
+    Track driver and constructor standings before and after each race
+  </Card>
+  <Card
+    title="Driver profiles"
+    icon="user"
+    href="/using/driver-profiles"
+  >
+    View complete season-by-season performance for any driver
+  </Card>
+  <Card
+    title="Constructor profiles"
+    icon="car"
+    href="/using/constructor-profiles"
+  >
+    Explore team results across seasons with detailed entry breakdowns
+  </Card>
+</CardGroup>
+
+## Key features
+
+Rear JackMan provides everything you need to follow the F1 season:
+
+<CardGroup cols={2}>
+  <Card title="Race schedule and results" icon="calendar">
+    View the full race calendar for any season from 2024 onwards. See grid positions, final classifications, race status, points awarded, and fastest lap indicators for every race.
+  </Card>
+  <Card title="Championship progression" icon="chart-line">
+    Track how the championship standings evolve before and after each race. See position changes, points gained, and win counts for both drivers and constructors.
+  </Card>
+  <Card title="Timezone-aware display" icon="clock">
+    Race dates and times are automatically converted to your local timezone, so you never miss a race start.
+  </Card>
+  <Card title="Historical comparison" icon="arrow-right-arrow-left">
+    Jump between seasons to compare the same race across different years. View driver and constructor performance from previous seasons.
+  </Card>
+  <Card title="Automated data sync" icon="arrows-rotate">
+    Race results and standings are automatically synced from the Jolpica F1 API. A scheduled job checks for completed races and updates the database daily.
+  </Card>
+  <Card title="Detailed profiles" icon="address-card">
+    Explore comprehensive driver and constructor pages showing race-by-race results, grid vs finish position changes, and year-over-year performance.
+  </Card>
+</CardGroup>
+
+## How it works
+
+Rear JackMan is built as a serverless application using Cloudflare Workers and D1 (SQLite). The app fetches data from the Jolpica F1 API and stores race schedules, results, and championship standings snapshots in a relational database.
+
+<Note>
+The app uses scheduled cron jobs to automatically sync the latest race results. Manual sync is also available via API endpoint for on-demand updates.
+</Note>
+
+### Data sources
+
+All F1 data comes from the [Jolpica F1 API](https://api.jolpi.ca/ergast/f1), which provides:
+- Race schedules and circuit information
+- Race results including grid positions, finishing positions, and status
+- Driver and constructor championship standings after each round
+- Historical data for past seasons
+
+## Quick start
+
+To start exploring F1 data with Rear JackMan:
+
+1. Visit the home page to see available seasons
+2. Select a season to view the race calendar
+3. Click on any race to see detailed results and standings
+4. Navigate to driver or constructor profiles to explore performance over time
+
+<CardGroup cols={2}>
+  <Card
+    title="Explore features"
+    icon="compass"
+    href="/features"
+  >
+    Learn about all the capabilities Rear JackMan offers
+  </Card>
+  <Card
+    title="Development guide"
+    icon="code"
+    href="/dev/setup"
+  >
+    Set up a local development environment and contribute
+  </Card>
+</CardGroup>

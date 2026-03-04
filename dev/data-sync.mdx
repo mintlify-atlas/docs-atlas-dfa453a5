@@ -1,0 +1,453 @@
+---
+title: Data sync
+description: How the Jolpica API sync system works
+---
+
+The sync system fetches F1 race data from the [Jolpica API](https://api.jolpi.ca/ergast/f1/) (an Ergast-compatible API) and stores it in D1. All sync logic is in `src/sync.ts`.
+
+## Architecture
+
+The sync process:
+
+1. Fetches the race schedule for a season
+2. For each completed race, fetches:
+   - Race results (grid + finish positions, points, fastest lap)
+   - Driver standings before and after the race
+   - Constructor standings before and after the race
+3. Upserts data into D1 using batch inserts
+4. Implements rate limiting with exponential backoff
+
+## API endpoints
+
+Base URL: `https://api.jolpi.ca/ergast/f1`
+
+All requests append `?limit=100` to fetch up to 100 results per page.
+
+### Get season schedule
+
+```typescript
+GET /{season}
+```
+
+Returns all races for a season.
+
+<ResponseField name="MRData.RaceTable.Races" type="JolpicaRace[]">
+  Array of race objects with schedule and circuit info
+</ResponseField>
+
+**Example:**
+```typescript
+const data = await jolpicaFetch<JolpicaRace>('/2024');
+const races = data.MRData.RaceTable?.Races ?? [];
+```
+
+### Get race results
+
+```typescript
+GET /{season}/{round}/results
+```
+
+Returns results for a specific race round, including grid positions and finish status.
+
+<ResponseField name="MRData.RaceTable.Races[0].Results" type="JolpicaResult[]">
+  Array of driver results for the race
+</ResponseField>
+
+**Example:**
+```typescript
+const data = await jolpicaFetch<JolpicaRace>('/2024/5/results');
+const results = data.MRData.RaceTable?.Races[0]?.Results ?? [];
+```
+
+### Get driver standings
+
+```typescript
+GET /{season}/{round}/driverStandings
+```
+
+Returns driver championship standings after a specific round.
+
+<ResponseField name="MRData.StandingsTable.StandingsLists[0].DriverStandings" type="JolpicaDriverStanding[]">
+  Array of driver standings with position, points, and wins
+</ResponseField>
+
+**Example:**
+```typescript
+const data = await jolpicaFetch('/2024/5/driverStandings');
+const standings = data.MRData.StandingsTable?.StandingsLists[0]?.DriverStandings ?? [];
+```
+
+### Get constructor standings
+
+```typescript
+GET /{season}/{round}/constructorStandings
+```
+
+Returns constructor championship standings after a specific round.
+
+<ResponseField name="MRData.StandingsTable.StandingsLists[0].ConstructorStandings" type="JolpicaConstructorStanding[]">
+  Array of constructor standings with position, points, and wins
+</ResponseField>
+
+## Rate limiting
+
+The Jolpica API returns `429 Too Many Requests` when rate limited. The sync system implements automatic retry with exponential backoff.
+
+```typescript
+const DELAY_MS = 2000;        // 2s delay between requests
+const MAX_RETRIES = 5;        // Up to 5 retry attempts
+```
+
+### Retry logic
+
+```typescript src/sync.ts
+function parseRetryAfterMs(header: string | null, fallbackMs: number): number {
+  if (!header) return fallbackMs;
+  // Try as a number of seconds first
+  const seconds = parseFloat(header);
+  if (!isNaN(seconds)) return Math.ceil(seconds) * 1000;
+  // Try as an HTTP date string (e.g. "Fri, 01 Mar 2026 12:00:00 GMT")
+  const date = new Date(header);
+  if (!isNaN(date.getTime())) return Math.max(0, date.getTime() - Date.now());
+  return fallbackMs;
+}
+```
+
+If the API returns a `Retry-After` header, the system:
+
+1. Parses the header as seconds or HTTP date
+2. Waits the specified duration
+3. Retries the request (up to `MAX_RETRIES` times)
+
+Fallback delays use exponential backoff: 5s, 10s, 20s, 40s, 80s.
+
+## Sync workflow
+
+The `syncSeason()` function orchestrates the entire sync process:
+
+```typescript
+export interface SyncResult {
+  season: number;
+  racesProcessed: number;
+  racesSkipped: number;
+  log: string[];
+}
+
+export async function syncSeason(
+  season: number,
+  db: D1Database,
+  fromRound = 1,
+  toRound?: number
+): Promise<SyncResult>
+```
+
+<ParamField path="season" type="number" required>
+  The season year to sync (e.g., 2024)
+</ParamField>
+
+<ParamField path="db" type="D1Database" required>
+  Cloudflare D1 database instance
+</ParamField>
+
+<ParamField path="fromRound" type="number" default={1}>
+  Starting round number (inclusive)
+</ParamField>
+
+<ParamField path="toRound" type="number">
+  Ending round number (inclusive), or undefined to sync all rounds
+</ParamField>
+
+### Process flow
+
+1. **Fetch schedule**
+   ```typescript
+   const races = await fetchSchedule(season);
+   ```
+
+2. **For each race:**
+   - Upsert race metadata (always, even if upcoming)
+   - Skip if race date is in the future
+   - Fetch and store results
+   - Fetch "before" standings (from previous round or cache)
+   - Fetch "after" standings (current round)
+   - Cache "after" standings for next round's "before"
+
+3. **Return summary**
+   ```typescript
+   return {
+     season,
+     racesProcessed,
+     racesSkipped,
+     log
+   };
+   ```
+
+### Upsert operations
+
+All database writes use upsert (`INSERT ... ON CONFLICT DO UPDATE`) to be idempotent.
+
+#### Upsert race
+
+```typescript src/sync.ts
+async function upsertRace(db: D1Database, season: number, race: JolpicaRace): Promise<number> {
+  const result = await db
+    .prepare(
+      `INSERT INTO races (season, round, name, circuit_name, circuit_id, locality, country, date, time, wikipedia_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(season, round) DO UPDATE SET
+         name = excluded.name,
+         circuit_name = excluded.circuit_name,
+         circuit_id = excluded.circuit_id,
+         locality = excluded.locality,
+         country = excluded.country,
+         date = excluded.date,
+         time = excluded.time,
+         wikipedia_url = excluded.wikipedia_url
+       RETURNING id`
+    )
+    .bind(
+      season,
+      parseInt(race.round),
+      race.raceName,
+      race.Circuit.circuitName,
+      race.Circuit.circuitId,
+      race.Circuit.Location.locality,
+      race.Circuit.Location.country,
+      race.date,
+      race.time ?? null,
+      race.url
+    )
+    .first<{ id: number }>();
+
+  if (!result) throw new Error(`Failed to upsert race ${season}/${race.round}`);
+  return result.id;
+}
+```
+
+Returns the `race_id` for inserting related entries.
+
+#### Upsert race entries
+
+Replaces all entries for a race (delete + batch insert):
+
+```typescript src/sync.ts
+async function upsertRaceEntries(db: D1Database, raceId: number, results: JolpicaResult[]): Promise<void> {
+  // Delete existing entries for this race first
+  await db.prepare('DELETE FROM race_entries WHERE race_id = ?').bind(raceId).run();
+
+  const stmts = results.map((r) => {
+    const isFastestLap = r.FastestLap?.rank === '1' ? 1 : 0;
+    const finishPos = r.positionText === 'R' || r.positionText === 'D' || r.positionText === 'E' || r.positionText === 'W' || r.positionText === 'F' || r.positionText === 'N'
+      ? null
+      : parseInt(r.position);
+
+    return db
+      .prepare(
+        `INSERT INTO race_entries
+           (race_id, jolpica_driver_id, driver_code, driver_name, constructor, grid_position, finish_position, status, points, fastest_lap)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .bind(
+        raceId,
+        r.Driver.driverId,
+        r.Driver.code ?? '',
+        `${r.Driver.givenName} ${r.Driver.familyName}`,
+        r.Constructor.name,
+        r.grid === '0' ? null : parseInt(r.grid),
+        finishPos,
+        r.status,
+        parseFloat(r.points),
+        isFastestLap
+      );
+  });
+
+  if (stmts.length > 0) {
+    await db.batch(stmts);
+  }
+}
+```
+
+Notes:
+- `positionText` values like `'R'` (retired), `'D'` (disqualified) map to `null` finish position
+- `grid === '0'` indicates pit lane start → `null` grid position
+- Batch inserts improve performance
+
+#### Upsert standings snapshots
+
+Stores both driver and constructor standings for a race at a specific snapshot type (`'before'` or `'after'`).
+
+```typescript src/sync.ts
+async function upsertStandingsSnapshots(
+  db: D1Database,
+  raceId: number,
+  snapshotType: 'before' | 'after',
+  driverStandings: JolpicaDriverStanding[],
+  constructorStandings: JolpicaConstructorStanding[]
+): Promise<void> {
+  // Delete existing snapshots for this race + type
+  await db
+    .prepare('DELETE FROM standings_snapshots WHERE race_id = ? AND snapshot_type = ?')
+    .bind(raceId, snapshotType)
+    .run();
+
+  const stmts = [
+    ...driverStandings.flatMap((s) => {
+      const position = parseInt(s.position ?? '');
+      if (isNaN(position)) return []; // skip unclassified entries (positionText: "-")
+      return [db
+        .prepare(
+          `INSERT INTO standings_snapshots
+             (race_id, snapshot_type, entity_type, position, entity_id, entity_name, points, wins)
+           VALUES (?, ?, 'driver', ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          raceId,
+          snapshotType,
+          position,
+          s.Driver.driverId,
+          `${s.Driver.givenName} ${s.Driver.familyName}`,
+          parseFloat(s.points),
+          parseInt(s.wins)
+        )];
+    }),
+    ...constructorStandings.flatMap((s) => {
+      const position = parseInt(s.position ?? '');
+      if (isNaN(position)) return []; // skip unclassified entries
+      return [db
+        .prepare(
+          `INSERT INTO standings_snapshots
+             (race_id, snapshot_type, entity_type, position, entity_id, entity_name, points, wins)
+           VALUES (?, ?, 'constructor', ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          raceId,
+          snapshotType,
+          position,
+          s.Constructor.constructorId,
+          s.Constructor.name,
+          parseFloat(s.points),
+          parseInt(s.wins)
+        )];
+    }),
+  ];
+
+  if (stmts.length > 0) {
+    await db.batch(stmts);
+  }
+}
+```
+
+## Caching strategy
+
+To minimize API calls, the sync system caches standings between rounds:
+
+```typescript src/sync.ts
+let cachedDriverStandings: JolpicaDriverStanding[] = [];
+let cachedConstructorStandings: JolpicaConstructorStanding[] = [];
+let cachedRound = 0;
+
+for (const race of races) {
+  const round = parseInt(race.round);
+  const prevRound = round - 1;
+
+  // Use cached "after" from previous round as "before" for current round
+  if (cachedRound === prevRound) {
+    driverBefore = cachedDriverStandings;
+    constructorBefore = cachedConstructorStandings;
+  } else {
+    // Fetch from API if cache miss (e.g., sync resumed mid-season)
+    driverBefore = await fetchDriverStandings(season, prevRound);
+    constructorBefore = await fetchConstructorStandings(season, prevRound);
+  }
+
+  // Fetch "after" standings and cache for next iteration
+  const driverAfter = await fetchDriverStandings(season, round);
+  const constructorAfter = await fetchConstructorStandings(season, round);
+
+  cachedDriverStandings = driverAfter;
+  cachedConstructorStandings = constructorAfter;
+  cachedRound = round;
+}
+```
+
+This reduces API calls by ~50% for sequential syncs.
+
+## Type definitions
+
+API response types from `src/types.ts`:
+
+```typescript
+export interface JolpicaResponse<T> {
+  MRData: {
+    total: string;
+    RaceTable?: { Races: T[] };
+    StandingsTable?: { StandingsLists: JolpicaStandingsList[] };
+  };
+}
+
+export interface JolpicaRace {
+  season: string;
+  round: string;
+  raceName: string;
+  Circuit: {
+    circuitId: string;
+    circuitName: string;
+    Location: {
+      locality: string;
+      country: string;
+    };
+  };
+  date: string;
+  time?: string;
+  url: string;
+  Results?: JolpicaResult[];
+}
+
+export interface JolpicaResult {
+  number: string;
+  position: string;
+  positionText: string;
+  points: string;
+  Driver: {
+    driverId: string;
+    code: string;
+    givenName: string;
+    familyName: string;
+  };
+  Constructor: {
+    constructorId: string;
+    name: string;
+  };
+  grid: string;
+  laps: string;
+  status: string;
+  FastestLap?: {
+    rank: string;
+    lap: string;
+    Time: { time: string };
+  };
+}
+
+export interface JolpicaDriverStanding {
+  position?: string;      // absent when positionText is "-" (e.g. DNF, no points)
+  positionText: string;
+  points: string;
+  wins: string;
+  Driver: {
+    driverId: string;
+    givenName: string;
+    familyName: string;
+  };
+}
+
+export interface JolpicaConstructorStanding {
+  position?: string;      // absent when positionText is "-"
+  positionText: string;
+  points: string;
+  wins: string;
+  Constructor: {
+    constructorId: string;
+    name: string;
+  };
+}
+```

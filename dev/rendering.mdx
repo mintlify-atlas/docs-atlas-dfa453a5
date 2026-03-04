@@ -1,0 +1,301 @@
+---
+title: Rendering
+description: Server-side rendering system and UI components
+---
+
+The application uses server-side rendering (SSR) to generate HTML responses. All UI code is in `src/ui/*.ts`.
+
+## Architecture
+
+The rendering system consists of:
+
+- **Layout** (`layout.ts`) — Shared HTML shell and utilities
+- **Styles** (`styles.ts`) — CSS-in-JS styles embedded in `<head>`
+- **Client scripts** (`client.ts`) — Minimal vanilla JS for interactivity
+- **Page renderers** (`render.ts`) — Exports for each page type
+
+Pages are rendered as complete HTML strings and returned with `Content-Type: text/html`.
+
+## Layout system
+
+The `layout()` function wraps all page content in a consistent HTML structure.
+
+```typescript src/ui/layout.ts
+export function layout(title: string, body: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>${title} — Rear JackMan</title>
+  <style>${css}</style>
+</head>
+<body>
+${body}
+<script>${collapseToggleScript}</script>
+</body>
+</html>`;
+}
+```
+
+<ParamField path="title" type="string" required>
+  Page title (appended with " — Rear JackMan")
+</ParamField>
+
+<ParamField path="body" type="string" required>
+  HTML content to render inside `<body>`
+</ParamField>
+
+**Returns:** Complete HTML document string
+
+## Styling
+
+All styles are defined in `src/ui/styles.ts` as a single CSS string:
+
+```typescript src/ui/styles.ts
+export const css = `
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --border: #2e2e2e;
+    --text: #e8e8e8;
+    --muted: #888;
+    --accent: #e10600; /* F1 red */
+    --accent-dim: #7a0300;
+    --green: #4caf50;
+    --yellow: #ffc107;
+    --font: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 2.0;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 24px 16px 64px;
+  }
+  /* ... */
+`;
+```
+
+### Design system
+
+<ParamField path="--bg" type="color" default="#0f0f0f">
+  Page background (dark gray/black)
+</ParamField>
+
+<ParamField path="--surface" type="color" default="#1a1a1a">
+  Card/box backgrounds (lighter than `--bg`)
+</ParamField>
+
+<ParamField path="--border" type="color" default="#2e2e2e">
+  Border color for tables and cards
+</ParamField>
+
+<ParamField path="--text" type="color" default="#e8e8e8">
+  Primary text color (light gray)
+</ParamField>
+
+<ParamField path="--muted" type="color" default="#888">
+  Secondary/muted text (darker gray)
+</ParamField>
+
+<ParamField path="--accent" type="color" default="#e10600">
+  Accent color (F1 red)
+</ParamField>
+
+<ParamField path="--font" type="string" default="monospace stack">
+  Monospace font stack: SF Mono, Fira Code, Cascadia Code, Consolas
+</ParamField>
+
+### Responsive design
+
+The UI adapts to mobile screens using a media query:
+
+```css
+@media (max-width: 600px) {
+  body { padding: 16px 12px 48px; }
+  h1 { font-size: 1.2rem; }
+
+  .standings-grid { grid-template-columns: 1fr; }
+
+  /* Swap table for cards in results */
+  .results-table-wrap { display: none; }
+  .results-cards { display: block; }
+
+  /* Hide circuit on season list to save space */
+  .season-list .circuit { display: none; }
+  .season-list .race-date { display: none; }
+}
+```
+
+On mobile:
+- Tables are replaced with card layouts for race results
+- Standings grid switches from 2-column to 1-column
+- Less critical metadata is hidden to reduce clutter
+
+## Client-side interactivity
+
+The application uses minimal vanilla JavaScript for collapsible sections.
+
+```typescript src/ui/client.ts
+export const collapseToggleScript = `
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('.show-more-btn');
+    if (!btn) return;
+    var section = btn.closest('.collapsible-section');
+    if (!section) return;
+    var expanded = section.dataset.expanded === 'true';
+    section.dataset.expanded = expanded ? 'false' : 'true';
+    var hidden = section.querySelectorAll('.collapsed-row, .collapsed-card');
+    hidden.forEach(function(el) { el.style.display = expanded ? '' : (el.classList.contains('result-card') ? 'block' : 'table-row'); });
+    btn.textContent = expanded ? btn.dataset.labelMore : btn.dataset.labelLess;
+  });
+`;
+```
+
+**How it works:**
+
+1. User clicks a `.show-more-btn` button
+2. Script finds parent `.collapsible-section`
+3. Toggles `data-expanded` attribute
+4. Shows/hides `.collapsed-row` and `.collapsed-card` elements
+5. Updates button text based on state
+
+This script is embedded in every page via `layout()`.
+
+## Shared utilities
+
+### HTML escaping
+
+```typescript src/ui/layout.ts
+export function escHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+```
+
+Escapes HTML special characters to prevent injection.
+
+### Date formatting
+
+```typescript src/ui/layout.ts
+export function formatDate(dateStr: string): string {
+  // dateStr is YYYY-MM-DD; format as "1 Mar 2025"
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${day} ${months[month - 1]} ${year}`;
+}
+```
+
+Converts ISO dates (`"2024-03-17"`) to human-readable format (`"17 Mar 2024"`).
+
+### Position delta
+
+```typescript src/ui/layout.ts
+export function posDeltaHtml(diff: number): string {
+  if (diff > 0) return `<span class="pos-delta pos-up">+${diff}</span>`;
+  if (diff < 0) return `<span class="pos-delta pos-down">${diff}</span>`;
+  return `<span class="pos-delta pos-same">=</span>`;
+}
+```
+
+Renders position changes in standings:
+- **Green** for gains (`+3`)
+- **Red** for losses (`-2`)
+- **Gray** for no change (`=`)
+
+### Show more button
+
+```typescript src/ui/layout.ts
+export function showMoreBtn(total: number, preview: number): string {
+  if (total <= preview) return '';
+  return `<button class="show-more-btn" data-label-more="Show all ${total} &darr;" data-label-less="Show less &uarr;">Show all ${total} &darr;</button>`;
+}
+```
+
+Generates a collapsible "Show more" button if there are more than `preview` items.
+
+<ParamField path="total" type="number" required>
+  Total number of items
+</ParamField>
+
+<ParamField path="preview" type="number" required>
+  Number of items shown by default
+</ParamField>
+
+**Returns:** Button HTML or empty string if `total <= preview`
+
+## Page renderers
+
+The `render.ts` file re-exports page-specific renderers:
+
+```typescript src/ui/render.ts
+export { renderHome } from './pages/home';
+export { renderSeasonList } from './pages/season';
+export { renderRaceDetail } from './pages/race';
+export { renderDriverPage } from './pages/driver';
+export { renderConstructorPage } from './pages/constructor';
+```
+
+Each renderer:
+
+1. Fetches data from D1 (if needed)
+2. Builds HTML using template strings
+3. Wraps content in `layout()`
+4. Returns complete HTML document
+
+**Example pattern:**
+
+```typescript
+export async function renderSeasonList(db: D1Database, season: number): Promise<string> {
+  const races = await db.prepare(
+    'SELECT * FROM races WHERE season = ? ORDER BY round'
+  ).bind(season).all<Race>();
+
+  const html = `
+    <div class="breadcrumb">
+      <a href="/">Home</a> / ${season}
+    </div>
+    <h1>${season} Season</h1>
+    <ul class="season-list">
+      ${races.results.map(race => `
+        <li>
+          <a href="/${season}/${race.round}">
+            <span class="round-num">R${race.round}</span>
+            <span class="race-name">${escHtml(race.name)}</span>
+            <span class="circuit">${escHtml(race.circuit_name)}</span>
+            <span class="race-date">${formatDate(race.date)}</span>
+          </a>
+        </li>
+      `).join('')}
+    </ul>
+  `;
+
+  return layout(`${season} Season`, html);
+}
+```
+
+## Performance considerations
+
+1. **Inline CSS** — All styles are embedded in `<head>` to avoid additional HTTP requests
+2. **Minimal JS** — Only essential interactivity (collapse/expand) is implemented client-side
+3. **No frameworks** — Pure string concatenation for rendering (fast and lightweight)
+4. **Server-side rendering** — HTML is fully rendered on the server, improving initial load time and SEO
+
+## Accessibility
+
+- Semantic HTML (`<table>`, `<ul>`, `<nav>`)
+- `lang="en"` attribute on `<html>`
+- Proper heading hierarchy (`<h1>`, `<h2>`, `<h3>`)
+- Descriptive link text (no "click here")
+- Mobile-friendly viewport meta tag

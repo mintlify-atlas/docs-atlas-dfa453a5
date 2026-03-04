@@ -1,0 +1,291 @@
+---
+title: Features
+description: Comprehensive guide to Rear JackMan's race tracking and championship analysis capabilities
+---
+
+## Overview
+
+Rear JackMan gives you a complete view of the F1 season with automated data syncing, detailed race breakdowns, and historical performance tracking. This page covers all major features and how they help you follow the championship.
+
+## Race schedule and results
+
+View the complete race calendar for any season and drill down into individual race details.
+
+### Season calendar
+
+Each season page displays all races in chronological order with:
+- Round number
+- Race name and circuit
+- Date (formatted for easy reading)
+- Status indicator for upcoming races
+
+Races are sorted by round number, and upcoming races are clearly marked so you know which events haven't happened yet.
+
+<Tip>
+Click on any race to see the full results page with grid positions, finishing order, and championship standings.
+</Tip>
+
+### Race detail pages
+
+Every race page includes comprehensive information:
+
+**Race header**
+- Round number and season
+- Circuit name, location (locality and country)
+- Race date and time in your local timezone
+- Link to Wikipedia for additional context
+- Quick links to view the same round in other seasons
+
+**Grid and results table**
+- Starting grid position
+- Final finishing position with position change indicators
+- Driver name with links to driver profiles
+- Constructor name with links to team profiles
+- Race status (Finished, DNF, Disqualified, etc.)
+- Points awarded
+- Fastest lap indicator
+
+**Position change indicators**
+
+The app calculates how many positions each driver gained or lost during the race:
+- Green indicator: positions gained from grid to finish
+- Red indicator: positions lost
+- No indicator: finished in grid position or did not finish
+
+<Note>
+Results are initially collapsed to show the top 5 finishers. Use the "Show more" button to expand the full classification.
+</Note>
+
+## Championship standings tracking
+
+Rear JackMan's standout feature is tracking championship standings before and after each race, allowing you to see exactly how the championship evolved.
+
+### Before and after snapshots
+
+For every completed race, you can view:
+- **Driver standings** before the race (after the previous round)
+- **Driver standings** after the race
+- **Constructor standings** before the race
+- **Constructor standings** after the race
+
+This lets you see the immediate impact of each race on the championship battle.
+
+### Standings data
+
+Each standings table shows:
+- Current position
+- Position change from the previous snapshot (green arrow up, red arrow down)
+- Entity name (driver or constructor) with profile links
+- Total points with points gained indicator
+- Total wins
+
+<Tip>
+Standings for round 1 show "Pre-season" as the before snapshot, giving you a clean starting point for the championship.
+</Tip>
+
+### Points progression
+
+When a driver or constructor scores points in a race, the standings table displays the points gained in green next to their total points (e.g., "125 +25"). This makes it easy to see who had a strong race.
+
+## Driver profiles
+
+Driver profile pages provide a complete view of a driver's performance for a specific season.
+
+### Season results
+
+Each driver page includes:
+- Full name and season selector
+- Race-by-race results for the current season
+- Previous season results for year-over-year comparison
+
+**Results table columns:**
+- Race name and round number (linked to race detail)
+- Constructor (team)
+- Grid position
+- Finish position with position change
+- Race status
+- Points scored
+
+Results are sorted chronologically by round number, making it easy to track a driver's progression through the season.
+
+### Year-over-year comparison
+
+If the driver competed in the previous season, their results are displayed below the current season table. This allows you to:
+- Compare performance between seasons
+- See if they switched teams
+- Track improvement or decline in results
+
+<Note>
+Driver profiles are accessible from race results pages and championship standings tables. Click any driver name to view their full profile.
+</Note>
+
+## Constructor profiles
+
+Constructor (team) profiles show all race entries for a specific team across a season.
+
+### Team results
+
+Constructor pages display:
+- Constructor name and season
+- All race entries for both drivers
+- Previous season results for comparison
+
+**Results table structure:**
+- Race name and round (shown once per race, then grouped)
+- Driver name (linked to driver profile)
+- Grid position
+- Finish position with position change
+- Race status
+- Points scored per entry
+
+When a constructor has multiple drivers in the same race, the race name appears only once with results grouped below. This makes it easy to compare how both drivers performed.
+
+### Historical performance
+
+Like driver profiles, constructor pages show the previous season's results for historical context. You can:
+- See how the team performed year-over-year
+- Track driver lineup changes
+- Compare championship competitiveness
+
+<Tip>
+Constructor profiles are linked from race results tables and standings. Click any team name to explore their full season.
+</Tip>
+
+## Automated data synchronization
+
+Rear JackMan automatically keeps race data up-to-date without manual intervention.
+
+### Scheduled sync
+
+A cron job runs daily to:
+1. Fetch the current season's race schedule from the Jolpica F1 API
+2. Identify completed races based on the race date
+3. Queue a sync job for the most recently completed race
+
+This ensures that results and standings are updated shortly after each race weekend.
+
+### Sync process
+
+When a sync job runs, it:
+- Fetches race results including grid positions, finishing positions, and status
+- Retrieves driver and constructor standings before the race (from the previous round)
+- Retrieves driver and constructor standings after the race
+- Stores all data in the D1 database using upsert operations (updates existing records or inserts new ones)
+
+### Manual sync
+
+Developers and administrators can trigger a manual sync via API:
+
+```bash
+curl "https://your-domain.com/api/sync/2026" \
+  -H "X-Sync-Secret: your-secret-key"
+```
+
+Optional query parameters:
+- `from` - Start from a specific round (default: 1)
+- `to` - End at a specific round (default: last completed race)
+
+This is useful for:
+- Backfilling historical seasons
+- Re-syncing data after API corrections
+- Testing sync logic during development
+
+<Note>
+The sync endpoint requires authentication via the `X-Sync-Secret` header to prevent unauthorized access.
+</Note>
+
+## Timezone conversion
+
+Race dates and times stored in the database are displayed in the user's local timezone.
+
+### How it works
+
+The race detail page includes a client-side script that:
+1. Reads the race date and time from the server
+2. Converts it to the user's local timezone using JavaScript's `Date` API
+3. Formats it with weekday, date, time, and timezone abbreviation
+
+This ensures that you always see race times in your local context, making it easier to plan viewing.
+
+**Example:** A race scheduled for `2026-03-15T14:00:00Z` (UTC) displays as:
+- `Sun, Mar 15, 2026, 09:00 AM EST` (for users in New York)
+- `Sun, Mar 15, 2026, 02:00 PM GMT` (for users in London)
+- `Mon, Mar 16, 2026, 01:00 AM AEDT` (for users in Sydney)
+
+## Historical season comparison
+
+Rear JackMan makes it easy to compare races across different seasons.
+
+### Same-round navigation
+
+On each race detail page, you'll find links to the same round in other seasons. For example, viewing Round 5 of the 2026 season shows quick links to:
+- Round 5, 2025
+- Round 5, 2024
+
+This allows you to:
+- Compare results at the same circuit over multiple years
+- See how championship standings evolved at similar points in different seasons
+- Track long-term trends for specific races
+
+<Tip>
+Not all seasons have the same number of rounds or the same circuits in each round. The app only displays links to seasons where that round exists.
+</Tip>
+
+## Responsive design
+
+All pages adapt to different screen sizes:
+
+**Desktop view:**
+- Tables display full race results and standings
+- Multi-column layouts for standings comparison
+- Expanded metadata and breadcrumbs
+
+**Mobile view:**
+- Card-based layouts for race results
+- Condensed standings tables
+- Optimized touch targets for navigation
+
+The app uses media queries to automatically switch between layouts based on viewport width, ensuring a great experience on any device.
+
+## Performance optimizations
+
+### Collapsible sections
+
+Large tables (race results and standings) are initially collapsed to show only the top 5 entries. Users can click "Show more" to expand the full list. This:
+- Reduces initial page load time
+- Improves readability by focusing on key results
+- Maintains fast navigation on mobile devices
+
+### Database indexing
+
+The D1 database schema includes indexes on:
+- `races.season` and `races.round` for fast season and race lookups
+- `race_entries.race_id` for quick result retrieval
+- `standings_snapshots.race_id` for efficient standings queries
+
+These indexes ensure that pages load quickly even as the database grows with more seasons.
+
+### Batch operations
+
+Data sync uses batch inserts and upserts to minimize database round-trips. All race entries and standings snapshots for a race are inserted in a single transaction, improving sync speed.
+
+## API rate limiting
+
+The sync process includes built-in rate limiting protections:
+
+### Delay between requests
+
+A 2-second delay is enforced between each API request to the Jolpica F1 API. This prevents overwhelming the API and ensures compliance with usage guidelines.
+
+### Retry logic
+
+If the API returns a `429 Too Many Requests` status:
+1. The sync process reads the `Retry-After` header
+2. Waits for the specified duration (or uses exponential backoff if no header is provided)
+3. Retries the request up to 5 times before failing
+
+This ensures reliable data syncing even during periods of high API load.
+
+<Note>
+Sync jobs are queued using Cloudflare Queues, allowing multiple syncs to run without blocking the main worker thread.
+</Note>

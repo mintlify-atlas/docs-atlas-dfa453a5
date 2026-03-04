@@ -1,0 +1,169 @@
+---
+title: Environment variables
+description: Required environment variables and secrets for rearjackman deployment
+---
+
+## Overview
+
+rearjackman requires environment variables for authentication and service configuration. Secrets are managed via Wrangler and injected into the worker at runtime.
+
+## Required secrets
+
+### SYNC_SECRET
+
+Authentication secret for manual sync API requests.
+
+**Type**: `string`
+
+**Usage**: Protects the `/api/sync/:season` endpoint from unauthorized access.
+
+```typescript
+// src/worker.ts:124
+const secret = request.headers.get('X-Sync-Secret');
+if (!secret || secret !== env.SYNC_SECRET) {
+  return new Response('Unauthorized', { status: 401 });
+}
+```
+
+**Setting the secret**:
+
+```bash
+wrangler secret put SYNC_SECRET
+```
+
+You will be prompted to enter the secret value.
+
+<Warning>
+Never commit `SYNC_SECRET` to version control. Use Wrangler secrets management for both local and production environments.
+</Warning>
+
+### Using the sync endpoint
+
+Once `SYNC_SECRET` is set, trigger manual syncs with:
+
+```bash
+curl "https://rearjackman.com/api/sync/2026" \
+  -H "X-Sync-Secret: your-secret-here"
+```
+
+**Query parameters**:
+- `from` - Starting round number (default: 1)
+- `to` - Ending round number (default: all rounds)
+
+Example with round range:
+
+```bash
+curl "https://rearjackman.com/api/sync/2026?from=5&to=10" \
+  -H "X-Sync-Secret: your-secret-here"
+```
+
+<Note>
+The sync endpoint queues jobs to `SYNC_QUEUE` for asynchronous processing. See `src/worker.ts:122-151` for implementation details.
+</Note>
+
+## Local development
+
+For local development, create a `.dev.vars` file in the project root:
+
+```bash
+SYNC_SECRET=dev-secret
+```
+
+Wrangler automatically loads `.dev.vars` when running `npm run dev`.
+
+<Warning>
+Do not commit `.dev.vars` to version control. Add it to `.gitignore`.
+</Warning>
+
+### Local sync example
+
+The `package.json` includes a convenience script for local testing:
+
+```json
+"sync:local": "curl \"http://localhost:8787/api/sync/2026\" -H \"X-Sync-Secret: dev-secret\""
+```
+
+Run it with:
+
+```bash
+npm run sync:local
+```
+
+## Environment bindings
+
+The worker environment interface is defined in `src/types.ts`:
+
+```typescript
+export interface Env {
+  DB: D1Database;
+  SYNC_SECRET: string;
+  SYNC_QUEUE: Queue<{ season: number; fromRound?: number; toRound?: number }>;
+}
+```
+
+### Accessing environment variables
+
+All environment variables and bindings are accessed via the `env` parameter:
+
+```typescript
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Access secret
+    const secret = env.SYNC_SECRET;
+    
+    // Access D1 database
+    const result = await env.DB.prepare('SELECT * FROM races').all();
+    
+    // Access queue
+    await env.SYNC_QUEUE.send({ season: 2026 });
+  }
+}
+```
+
+## Production secrets management
+
+List all secrets in production:
+
+```bash
+wrangler secret list
+```
+
+Delete a secret:
+
+```bash
+wrangler secret delete SYNC_SECRET
+```
+
+Update a secret:
+
+```bash
+wrangler secret put SYNC_SECRET
+```
+
+<Note>
+Secret updates take effect immediately. No redeployment required.
+</Note>
+
+## Security best practices
+
+1. **Use strong secrets**: Generate cryptographically secure random strings for `SYNC_SECRET`
+2. **Rotate regularly**: Update secrets periodically
+3. **Never log secrets**: Avoid logging `SYNC_SECRET` or other sensitive values
+4. **Separate environments**: Use different secrets for development and production
+5. **Limit access**: Only share secrets with authorized team members
+
+### Generating secure secrets
+
+```bash
+# Generate a 32-byte random secret (base64 encoded)
+openssl rand -base64 32
+
+# Or use Node.js
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+## Next steps
+
+- [Deploy to Cloudflare Workers](/dev/cloudflare-workers)
+- Learn about [Wrangler secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
+- Review [environment variable best practices](https://developers.cloudflare.com/workers/configuration/environment-variables/)
